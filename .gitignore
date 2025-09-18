@@ -1,8 +1,0 @@
-# compilation garbage
-*.o
-*.obj
-*.so
-*.exe
-*.out
-*.a
-*.dylib
