@@ -21,13 +21,13 @@ void do_command(char** argv) {
         std::cerr << "Fork failed\n";
         return;
     } else if (pid == 0) {
-        // Child process
+        
         if (execvp(argv[0], argv) < 0) {
             std::cerr << "Execution failed for command: " << argv[0] << "\n";
             exit(1);
         }
     } else {
-        // Parent process
+        
         int status;
         if (waitpid(pid, &status, 0) < 0) {
             std::cerr << "waitpid failed\n";
@@ -57,7 +57,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Build null-terminated argument vector for execvp
     std::vector<char*> exec_args;
     for (int i = 1; i < argc; ++i) {
         exec_args.push_back(argv[i]);
