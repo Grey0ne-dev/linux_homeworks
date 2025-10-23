@@ -17,7 +17,7 @@ void verify(int i) {
 
 int main (int argc, char* argv[]) {
 
-	const size_t BUFFER = 16;
+	const size_t BUFFER = 1024 * 1024;
 	
 	if(argc < 3) {
 		printf("source and destination files are not provided\n");
@@ -31,7 +31,6 @@ int main (int argc, char* argv[]) {
 	int destfd = open(dest, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP);
 	verify(destfd);
 	char * buf = (char*)malloc(BUFFER);
-	size_t count = 0;
 	size_t readCount = 0;
 	while(1) {
 		readCount = read(srcfd, buf, BUFFER);
@@ -42,9 +41,10 @@ int main (int argc, char* argv[]) {
 		verify(writeCount);
 	}
 
-
-		close(srcfd);
-		close(destfd);
+		int cl = close(srcfd);
+		verify(cl);
+		cl = close(destfd);
+		verify(cl);
 		free(buf);
 		printf("complete\n");
 	return 0;

@@ -9,7 +9,7 @@
 #include <fcntl.h>
 #include <cstring>
 
-InteractiveShell::InteractiveShell() {
+InteractiveShell::InteractiveShell(bool silent) : silentMode(silent) {
     char buffer[1024];
     if (getcwd(buffer, sizeof(buffer)) != nullptr) {
         currentPath = buffer;
@@ -18,10 +18,15 @@ InteractiveShell::InteractiveShell() {
 
 void InteractiveShell::run() {
     std::string input;
-    std::cout << "Interactive Shell Started. Type 'exit' to quit." << std::endl;
+
+    if (!silentMode) {
+        std::cout << "Interactive Shell Started. Type 'exit' to quit." << std::endl;
+    }
 
     while (true) {
-        std::cout << "shell> ";
+        if (!silentMode) {
+            std::cout << "shell> ";
+        }
         std::getline(std::cin, input);
 
         if (input == "exit") break;
@@ -46,7 +51,7 @@ std::vector<std::string> InteractiveShell::parseCommand(const std::string& comma
 
     for (size_t i = 0; i < command.length(); i++) {
         char c = command[i];
-        
+
         if ((c == '"' || c == '\'') && !inQuotes) {
             inQuotes = true;
             quoteChar = c;
@@ -69,7 +74,7 @@ std::vector<std::string> InteractiveShell::parseCommand(const std::string& comma
             currentToken += c;
         }
     }
-    
+
     if (!currentToken.empty()) {
         tokens.push_back(currentToken);
     }
@@ -82,10 +87,10 @@ bool InteractiveShell::executeCommandWithOperators(const std::vector<std::string
     std::string inputFile, outputFile;
     bool append = false;
     bool useLogicalAnd = true;
-    
+
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
-        
+
         if (token == ">") {
             if (i + 1 < tokens.size()) {
                 outputFile = tokens[++i];
@@ -104,34 +109,34 @@ bool InteractiveShell::executeCommandWithOperators(const std::vector<std::string
             }
             continue;
         }
-        
+
         if (token == "&&" || token == "||") {
             if (!currentArgs.empty()) {
                 int exitCode = executeProcess(currentArgs, inputFile, outputFile, append);
-                
+
                 inputFile.clear();
                 outputFile.clear();
                 append = false;
-                
+
                 if (token == "&&" && exitCode != 0) {
                     return false;
                 } else if (token == "||" && exitCode == 0) {
                     return true;
                 }
-                
+
                 currentArgs.clear();
             }
             continue;
         }
-        
+
         currentArgs.push_back(token);
     }
-    
+
     if (!currentArgs.empty()) {
         int exitCode = executeProcess(currentArgs, inputFile, outputFile, append);
         return exitCode == 0;
     }
-    
+
     return true;
 }
 
@@ -140,15 +145,15 @@ int InteractiveShell::executeProcess(const std::vector<std::string>& args,
                                    const std::string& outputFile,
                                    bool append) {
     pid_t pid = fork();
-    
+
     if (pid == -1) {
         std::cerr << "Fork failed" << std::endl;
         return -1;
     }
-    
+
     if (pid == 0) {
         addCurrentDirectoryToPath();
-        
+
         if (!inputFile.empty()) {
             int fd = open(inputFile.c_str(), O_RDONLY);
             if (fd == -1) {
@@ -161,11 +166,11 @@ int InteractiveShell::executeProcess(const std::vector<std::string>& args,
             }
             close(fd);
         }
-        
+
         if (!outputFile.empty()) {
             int flags = O_WRONLY | O_CREAT;
             flags |= append ? O_APPEND : O_TRUNC;
-            
+
             int fd = open(outputFile.c_str(), flags, 0644);
             if (fd == -1) {
                 std::cerr << "Couldn't open output file: " << outputFile << std::endl;
@@ -177,22 +182,22 @@ int InteractiveShell::executeProcess(const std::vector<std::string>& args,
             }
             close(fd);
         }
-        
+
         std::vector<char*> execArgs;
         for (const auto& arg : args) {
             execArgs.push_back(const_cast<char*>(arg.c_str()));
         }
         execArgs.push_back(nullptr);
-        
-   
+
+
         execvp(execArgs[0], execArgs.data());
-        
+
         std::cerr << "Command not found: " << args[0] << std::endl;
         exit(EXIT_FAILURE);
     } else {
         int status;
         waitpid(pid, &status, 0);
-        
+
         if (WIFEXITED(status)) {
             return WEXITSTATUS(status);
         }

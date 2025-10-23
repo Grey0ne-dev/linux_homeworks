@@ -22,9 +22,10 @@ void shred(int fd, size_t size) {
     for (size_t i = 0; i < size; ++i)
         garbagebuffer[i] = '0';
 
-    lseek(fd, 0, SEEK_SET);
-    write(fd, garbagebuffer, size);
-
+    int check = lseek(fd, 0, SEEK_SET);
+    verify(check == 0, "lseek";
+    check = write(fd, garbagebuffer, size);
+    verify(check == size, "write");
     free(garbagebuffer);
 }
 
@@ -43,12 +44,12 @@ int main(int argc, char *argv[]) {
 
     printf("Shredding %s (%ld bytes)\n", filepath, size);
 
-    for (int i = 0; i < 3; ++i)
-        shred(fd, size);
+       shred(fd, size);
 
-    close(fd);
-    unlink(filepath);
-
+    int check = close(fd);
+    verify(check, "close");
+    check = unlink(filepath);
+    verify(check, "unlink");
     printf("File shredded and deleted.\n");
     return 0;
 }

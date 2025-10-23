@@ -12,31 +12,36 @@ void initialize(int argc, char** argv)
         exit(1);
     }
 
-    // Открываем файл только для чтения
+    // open file "READONLY"
     int fd = open(argv[1], O_RDONLY);
     if (fd < 0) {
         perror("open");
         exit(1);
     }
 
-    // Перенаправляем стандартный ввод (stdin = 0) в этот файл
-    dup2(fd, STDIN_FILENO);
-    close(fd);
+    // "Redirect output"
+    if(dup2(fd, STDIN_FILENO) == -1) {
+        perror("dup2");
+        exit(1);
+    }
+    if(close(fd) == -1) {
+        perror("close");
+        exit(1);
+    }
 }
 
 int main(int argc, char** argv)
 {
     initialize(argc, argv);
 
-    // читаем строку уже не с клавиатуры, а из файла
+    // reading string  from a file
     std::string input;
     std::cin >> input;
 
-    // переворачиваем строку
     std::string reversed = input;
     std::reverse(reversed.begin(), reversed.end());
 
-    // выводим результат в стандартный поток вывода (терминал)
+    // result -> stdout
     std::cout << reversed << std::endl;
 
     return 0;
