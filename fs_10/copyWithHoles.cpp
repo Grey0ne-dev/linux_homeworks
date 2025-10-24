@@ -2,11 +2,13 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <algorithm>
+#include <sys/stat.h>
+#include <vector>
 
 int main(int argc, char* argv[]) {
     if (argc != 3) {
-        std::cerr << "Two file paths should be passed as arguments!\n";
-        exit(1);
+        std::cerr << "Usage: " << argv[0] << " <source> <destination>\n";
+        return 1;
     }
 
     const char* srcPath = argv[1];
@@ -15,37 +17,32 @@ int main(int argc, char* argv[]) {
     int srcFd = open(srcPath, O_RDONLY);
     if (srcFd == -1) {
         perror("Error opening source file");
-        exit(1);
+        return 1;
     }
+
+    struct stat st;
+    if (fstat(srcFd, &st) == -1) {
+        perror("fstat(source) failed");
+        close(srcFd);
+        return 1;
+    }
+
+    off_t fileSize = st.st_size;
 
     int dstFd = open(dstPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (dstFd == -1) {
         perror("Error opening destination file");
         close(srcFd);
-        exit(1);
+        return 1;
     }
 
-    off_t fileSize = lseek(srcFd, 0, SEEK_END);
-    if (fileSize == -1) {
-        perror("Error getting file size");
-        close(srcFd);
-        close(dstFd);
-        exit(1);
-    }
-    
-    if(lseek(srcFd, 0, SEEK_SET) == -1) {
-        perror("Lseek error");
-        close(srcFd);
-        close(dstFd);
-        exit(1);
-    }
-    
-    off_t totalPhysical = 0;
+    const size_t BUFFER_SIZE = 4096;
+    std::vector<char> buffer(BUFFER_SIZE);
+
     off_t offset = 0;
-    size_t BUFFER_SIZE = 4096;
-    char buffer[BUFFER_SIZE];
+    off_t totalPhysical = 0;
 
-    while(offset < fileSize) {
+    while (offset < fileSize) {
         off_t dataOffset = lseek(srcFd, offset, SEEK_DATA);
         if (dataOffset == -1) {
             dataOffset = fileSize;
@@ -54,13 +51,16 @@ int main(int argc, char* argv[]) {
         if (dataOffset > offset) {
             off_t holeSize = dataOffset - offset;
             if (lseek(dstFd, holeSize, SEEK_CUR) == -1) {
-                perror("Error seeking in destination");
+                perror("seek in destination failed");
                 close(srcFd);
                 close(dstFd);
-                exit(1);
+                return 1;
             }
             offset = dataOffset;
         }
+
+        if (offset >= fileSize)
+            break;
 
         off_t holeOffset = lseek(srcFd, offset, SEEK_HOLE);
         if (holeOffset == -1) {
@@ -68,41 +68,46 @@ int main(int argc, char* argv[]) {
         }
 
         off_t chunkEnd = std::min(holeOffset, fileSize);
+
+        if (lseek(srcFd, offset, SEEK_SET) == -1 ||
+            lseek(dstFd, offset, SEEK_SET) == -1) {
+            perror("lseek failed");
+            close(srcFd);
+            close(dstFd);
+            return 1;
+        }
+
         while (offset < chunkEnd) {
-            size_t toRead = std::min((off_t)BUFFER_SIZE, chunkEnd - offset);
-            if (lseek(srcFd, offset, SEEK_SET) == -1) {
-                perror("lseek error");
-                close(srcFd);
-                close(dstFd);
-                exit(1);
-            }
-            
-            ssize_t bytesRead = read(srcFd, buffer, toRead);
-            if (bytesRead == -1) {
-                perror("Read error");
-                close(srcFd);
-                close(dstFd);
-                exit(1);
-            }
+            size_t toRead = static_cast<size_t>(std::min<off_t>(BUFFER_SIZE, chunkEnd - offset));
+            ssize_t bytesRead = read(srcFd, buffer.data(), toRead);
+            if (bytesRead <= 0) break;
 
-            ssize_t bytesWritten = write(dstFd, buffer, bytesRead);
+            ssize_t bytesWritten = write(dstFd, buffer.data(), bytesRead);
             if (bytesWritten != bytesRead) {
-                perror("Write error");
+                perror("write error");
                 close(srcFd);
                 close(dstFd);
-                exit(1);
+                return 1;
             }
 
-            offset += bytesRead;
+            offset += bytesWritten;
             totalPhysical += bytesWritten;
         }
+    }
+
+    if (truncate(dstPath, fileSize) == -1) {
+        perror("truncate failed");
+        close(srcFd);
+        close(dstFd);
+        return 1;
     }
 
     close(srcFd);
     close(dstFd);
 
-    std::cout << "Successfully copied " << fileSize
-              << " bytes (data: " << totalPhysical
-              << ", hole: " << (fileSize - totalPhysical) << ").\n";
+    std::cout << "Copied " << fileSize
+              << " bytes (data written: " << totalPhysical
+              << ", holes: " << (fileSize - totalPhysical) << ").\n";
     return 0;
 }
+
