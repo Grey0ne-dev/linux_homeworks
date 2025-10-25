@@ -9,9 +9,9 @@ struct args1 {
     long result;
 };
 
-void verify(int check, const char *errcode) {  // helper for error handling
+void verify(int check, const char *errmsg) {  // helper for error handling
     if (check != 0) {
-        perror(errcode);
+        perror(errcmsg);
         exit(1);
     }
 }
