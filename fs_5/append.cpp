@@ -6,33 +6,27 @@ int main (int argc, char ** argv) {
 
 
 	char firstline[] = "first line\n";
-	char secondline[] = "second line";
+	char secondline[] = "second line\n";
 	const char * filepath = argv[1];
-	int fd = open(filepath, O_WRONLY); 
+	int fd = open(filepath, O_WRONLY | O_CREAT | O_APPEND, 0644); 
 	if(fd < 0) {
 		std::cerr << "invalid filepath\n";
 		exit(1);
 	}
 	int fd2 = dup(fd);
-	if(fd  < 0) {
-		std::cerr << "couldnt duplicate file direction\n";
+	if(fd2 < 0) {
+		std::cerr << "couldnt duplicate file descriptor\n";
 		exit(1);
 	}
-	int chk = write(fd, firstline, strlen(firstline));
-	if(chk < 0) {
-		std::cerr << "Write failed\n";
+	write(fd, firstline, strlen(firstline));
+    if(close(fd) < 0) {
+		std::cerr << "error closing file descriptor\n";
 		exit(1);
 	}
-	chk = write(fd2, secondline, strlen(secondline));
-	if(chk < 0) {
-		std::cerr << "Write failed\n";
+	write(fd2, secondline, strlen(secondline));
+	if(close(fd2) < 0) {
+		std::cerr << "error closing file descriptor\n";
 		exit(1);
 	}
-	close(fd);
-	close(fd2);
-	return 0;
-
-
-
 	return 0;
 }
