@@ -11,7 +11,7 @@ struct args1 {
 
 void verify(int check, const char *errmsg) {  // helper for error handling
     if (check != 0) {
-        perror(errcmsg);
+        perror(errmsg);
         exit(1);
     }
 }
@@ -21,7 +21,7 @@ void* fillWithChaos(void* arg) {
     for (int i = 0; i < a->size; ++i) {  // name speaks itself
         a->chunk[i] = rand() % 1000;
     }
-    return NULL;
+    pthread_exit(NULL);
 }
 
 void* countSum(void* arg) {
@@ -31,7 +31,7 @@ void* countSum(void* arg) {
         sum += a->chunk[i];
     }
     a->result = sum;
-    return NULL;
+    pthread_exit(NULL);
 }
 
 double diff_timespec(struct timespec start, struct timespec end) {
@@ -75,11 +75,24 @@ int main(int argc, char *argv[]) {   //
     for (int i = 0; i < threadCount; ++i) {
         args[i].chunk = array + i * chunkSize;
         args[i].size = (i == threadCount - 1) ? chunkSize + remainder : chunkSize;
-        verify(pthread_create(&threads[i], NULL, fillWithChaos, &args[i]), "pthread_create");
+        int rc = pthread_create(&threads[i], NULL, fillWithChaos, &args[i]);
+        if (rc != 0) {
+            fprintf(stderr, "Warning: pthread_create failed for thread %d, main thread will handle task\n", i);
+            fillWithChaos(&args[i]);
+            threads[i] = 0;  // mark as not created
+        }
     }
 
     for (int i = 0; i < threadCount; ++i) {
-        pthread_join(threads[i], NULL);
+        if (threads[i] != 0) {
+            void* ret_val;
+            int rc = pthread_join(threads[i], &ret_val);
+            if (rc != 0) {
+                fprintf(stderr, "Warning: pthread_join failed for thread %d\n", i);
+            } else {
+                printf("Fill thread %d exited with status: %p\n", i, ret_val);
+            }
+        }
     }
 
     clock_gettime(CLOCK_MONOTONIC, &endFill);
@@ -88,12 +101,25 @@ int main(int argc, char *argv[]) {   //
     clock_gettime(CLOCK_MONOTONIC, &startSum);
 
     for (int i = 0; i < threadCount; ++i) {
-        verify(pthread_create(&threads[i], NULL, countSum, &args[i]), "pthread_create");
+        int rc = pthread_create(&threads[i], NULL, countSum, &args[i]);
+        if (rc != 0) {
+            fprintf(stderr, "Warning: pthread_create failed for thread %d, main thread will handle task\n", i);
+            countSum(&args[i]);
+            threads[i] = 0;  // mark as not created
+        }
     }
 
     long total = 0;
     for (int i = 0; i < threadCount; ++i) {
-        pthread_join(threads[i], NULL);
+        if (threads[i] != 0) {
+            void* ret_val;
+            int rc = pthread_join(threads[i], &ret_val);
+            if (rc != 0) {
+                fprintf(stderr, "Warning: pthread_join failed for thread %d\n", i);
+            } else {
+                printf("Sum thread %d exited with status: %p\n", i, ret_val);
+            }
+        }
         total += args[i].result;
     }
 
@@ -109,4 +135,3 @@ int main(int argc, char *argv[]) {   //
     free(array);
     return 0;
 }
-
