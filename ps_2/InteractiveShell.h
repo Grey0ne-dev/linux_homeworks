@@ -18,6 +18,7 @@ private:
                              const std::string& inputFile = "",
                              const std::string& outputFile = "",
                              bool append = false);
+    bool executePipeline(const std::vector<std::vector<std::string>>& commands);
 
     void addCurrentDirectoryToPath();
     std::string getCurrentPath();
@@ -28,6 +29,11 @@ private:
                       const std::string& inputFile = "",
                       const std::string& outputFile = "",
                       bool append = false);
+    int executeProcess(const std::vector<std::string>& args,
+                      const std::string& inputFile,
+                      const std::string& outputFile,
+                      bool append,
+                      bool background);
 
 public:
     InteractiveShell(bool silent = false);
