@@ -18,8 +18,16 @@ int main (int argc, char ** argv) {
 		std::cerr << "couldnt duplicate file direction\n";
 		exit(1);
 	}
-	write(fd, firstline, strlen(firstline));
-	write(fd2, secondline, strlen(secondline));
+	int chk = write(fd, firstline, strlen(firstline));
+	if(chk < 0) {
+		std::cerr << "Write failed\n";
+		exit(1);
+	}
+	chk = write(fd2, secondline, strlen(secondline));
+	if(chk < 0) {
+		std::cerr << "Write failed\n";
+		exit(1);
+	}
 	close(fd);
 	close(fd2);
 	return 0;
