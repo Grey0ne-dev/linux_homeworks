@@ -86,12 +86,16 @@ bool InteractiveShell::executeCommandWithOperators(const std::vector<std::string
     std::vector<std::string> currentArgs;
     std::string inputFile, outputFile;
     bool append = false;
-    bool useLogicalAnd = true;
+    bool runInBackground = false;
+    std::vector<std::vector<std::string>> pipeCommands;
 
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
 
-        if (token == ">") {
+        if (token == "&" && i == tokens.size() - 1) {
+            runInBackground = true;
+            break;
+        } else if (token == ">") {
             if (i + 1 < tokens.size()) {
                 outputFile = tokens[++i];
                 append = false;
@@ -108,23 +112,41 @@ bool InteractiveShell::executeCommandWithOperators(const std::vector<std::string
                 inputFile = tokens[++i];
             }
             continue;
+        } else if (token == "|") {
+            if (!currentArgs.empty()) {
+                pipeCommands.push_back(currentArgs);
+                currentArgs.clear();
+            }
+            continue;
         }
 
         if (token == "&&" || token == "||") {
-            if (!currentArgs.empty()) {
-                int exitCode = executeProcess(currentArgs, inputFile, outputFile, append);
+            if (!pipeCommands.empty() || !currentArgs.empty()) {
+                if (!currentArgs.empty()) {
+                    pipeCommands.push_back(currentArgs);
+                    currentArgs.clear();
+                }
+                
+                int exitCode;
+                if (pipeCommands.size() > 1) {
+                    exitCode = executePipeline(pipeCommands) ? 0 : -1;
+                } else if (!pipeCommands.empty()) {
+                    exitCode = executeProcess(pipeCommands[0], inputFile, outputFile, append, runInBackground);
+                } else {
+                    exitCode = -1;
+                }
 
+                pipeCommands.clear();
                 inputFile.clear();
                 outputFile.clear();
                 append = false;
+                runInBackground = false;
 
                 if (token == "&&" && exitCode != 0) {
                     return false;
                 } else if (token == "||" && exitCode == 0) {
                     return true;
                 }
-
-                currentArgs.clear();
             }
             continue;
         }
@@ -132,9 +154,17 @@ bool InteractiveShell::executeCommandWithOperators(const std::vector<std::string
         currentArgs.push_back(token);
     }
 
-    if (!currentArgs.empty()) {
-        int exitCode = executeProcess(currentArgs, inputFile, outputFile, append);
-        return exitCode == 0;
+    if (!pipeCommands.empty() || !currentArgs.empty()) {
+        if (!currentArgs.empty()) {
+            pipeCommands.push_back(currentArgs);
+        }
+        
+        if (pipeCommands.size() > 1) {
+            return executePipeline(pipeCommands);
+        } else if (!pipeCommands.empty()) {
+            int exitCode = executeProcess(pipeCommands[0], inputFile, outputFile, append, runInBackground);
+            return exitCode == 0;
+        }
     }
 
     return true;
@@ -144,15 +174,33 @@ int InteractiveShell::executeProcess(const std::vector<std::string>& args,
                                    const std::string& inputFile,
                                    const std::string& outputFile,
                                    bool append) {
+    return executeProcess(args, inputFile, outputFile, append, false);
+}
+
+int InteractiveShell::executeProcess(const std::vector<std::string>& args,
+                                   const std::string& inputFile,
+                                   const std::string& outputFile,
+                                   bool append,
+                                   bool background) {
     pid_t pid = fork();
 
     if (pid == -1) {
-        std::cerr << "Fork failed" << std::endl;
+        if (!silentMode) {
+            std::cerr << "Fork failed" << std::endl;
+        }
         return -1;
     }
 
     if (pid == 0) {
         addCurrentDirectoryToPath();
+
+        if (silentMode) {
+            int devnull = open("/dev/null", O_WRONLY);
+            if (devnull != -1) {
+                dup2(devnull, STDERR_FILENO);
+                close(devnull);
+            }
+        }
 
         if (!inputFile.empty()) {
             int fd = open(inputFile.c_str(), O_RDONLY);
@@ -195,6 +243,13 @@ int InteractiveShell::executeProcess(const std::vector<std::string>& args,
         std::cerr << "Command not found: " << args[0] << std::endl;
         exit(EXIT_FAILURE);
     } else {
+        if (background) {
+            if (!silentMode) {
+                std::cout << "Background process started with PID: " << pid << std::endl;
+            }
+            return 0;
+        }
+        
         int status;
         waitpid(pid, &status, 0);
 
@@ -203,6 +258,83 @@ int InteractiveShell::executeProcess(const std::vector<std::string>& args,
         }
         return -1;
     }
+}
+
+bool InteractiveShell::executePipeline(const std::vector<std::vector<std::string>>& commands) {
+    int numCommands = commands.size();
+    int pipefds[2 * (numCommands - 1)];
+    
+    for (int i = 0; i < numCommands - 1; i++) {
+        if (pipe(pipefds + i * 2) == -1) {
+            if (!silentMode) {
+                std::cerr << "Pipe creation failed" << std::endl;
+            }
+            return false;
+        }
+    }
+    
+    for (int i = 0; i < numCommands; i++) {
+        pid_t pid = fork();
+        
+        if (pid == -1) {
+            if (!silentMode) {
+                std::cerr << "Fork failed" << std::endl;
+            }
+            return false;
+        }
+        
+        if (pid == 0) {
+            addCurrentDirectoryToPath();
+            
+            if (silentMode) {
+                int devnull = open("/dev/null", O_WRONLY);
+                if (devnull != -1) {
+                    dup2(devnull, STDERR_FILENO);
+                    close(devnull);
+                }
+            }
+            
+            if (i > 0) {
+                if (dup2(pipefds[(i - 1) * 2], STDIN_FILENO) == -1) {
+                    std::cerr << "dup2 failed for stdin" << std::endl;
+                    exit(EXIT_FAILURE);
+                }
+            }
+            
+            if (i < numCommands - 1) {
+                if (dup2(pipefds[i * 2 + 1], STDOUT_FILENO) == -1) {
+                    std::cerr << "dup2 failed for stdout" << std::endl;
+                    exit(EXIT_FAILURE);
+                }
+            }
+            
+            for (int j = 0; j < 2 * (numCommands - 1); j++) {
+                close(pipefds[j]);
+            }
+            
+            std::vector<char*> execArgs;
+            for (const auto& arg : commands[i]) {
+                execArgs.push_back(const_cast<char*>(arg.c_str()));
+            }
+            execArgs.push_back(nullptr);
+            
+            execvp(execArgs[0], execArgs.data());
+            
+            std::cerr << "Command not found: " << commands[i][0] << std::endl;
+            exit(EXIT_FAILURE);
+        }
+    }
+    
+    for (int i = 0; i < 2 * (numCommands - 1); i++) {
+        close(pipefds[i]);
+    }
+    
+    for (int i = 0; i < numCommands; i++) {
+        int status;
+        wait(&status);
+    }
+    
+    return true;
 }
 
 void InteractiveShell::addCurrentDirectoryToPath() {
