@@ -33,12 +33,10 @@ public:
 
         control_name_ = base_name_ + std::string(".ctl");
         int ctl_fd = shm_open(control_name_.c_str(), O_CREAT | O_EXCL | O_RDWR, 0666);//nice number
-        bool ctl_owner = false;
         u64 meta_count = 3;
         size_t meta_size = meta_count * sizeof(u64);
         control_size_ = meta_size + sizeof(pthread_mutex_t);
         if (ctl_fd != -1) {
-            ctl_owner = true;
             if (ftruncate(ctl_fd, (off_t)control_size_) == -1) { int e=errno; close(ctl_fd); shm_unlink(control_name_.c_str()); throw std::runtime_error(std::string("ftruncate ctl failed: ")+strerror(e)); }
             void* mp = mmap(nullptr, control_size_, PROT_READ | PROT_WRITE, MAP_SHARED, ctl_fd, 0);
             if (mp == MAP_FAILED) { int e=errno; close(ctl_fd); shm_unlink(control_name_.c_str()); throw std::runtime_error(std::string("mmap ctl failed: ")+strerror(e)); }
@@ -49,7 +47,7 @@ public:
             // initialize process-shared mutex placed after metadata
             pthread_mutexattr_t attr; pthread_mutexattr_init(&attr); pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
             pthread_mutex_t* mptr = reinterpret_cast<pthread_mutex_t*>(reinterpret_cast<char*>(mp) + meta_size);
-            if (pthread_mutex_init(mptr, &attr) != 0) { int e = errno; pthread_mutexattr_destroy(&attr); munmap(mp, control_size_); close(ctl_fd); shm_unlink(control_name_.c_str()); throw std::runtime_error(std::string("pthread_mutex_init failed")); }
+            if (pthread_mutex_init(mptr, &attr) != 0) { int e = errno; pthread_mutexattr_destroy(&attr); munmap(mp, control_size_); close(ctl_fd); shm_unlink(control_name_.c_str()); throw std::runtime_error(std::string("pthread_mutex_init failed: ")+strerror(e)); }
             pthread_mutexattr_destroy(&attr);
             msync(mp, control_size_, MS_SYNC);
             control_map_ = mp;
